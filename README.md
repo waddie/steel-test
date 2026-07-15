@@ -63,13 +63,17 @@ Run with `steel tests/test-foo.scm`. Exit code 0 means the suite passed.
 ## Failure output
 
 ```sh
-FAIL in (addition) [basic]
+FAIL in (addition) [basic] (test-foo.scm:7)
   (= 4 (add 2 2))
   expected: 4
   actual:   5
 Ran 1 tests containing 1 assertions.
 1 failures, 0 errors.
 ```
+
+The `(file:line)` suffix points at the failing assertion; an uncaught error
+escaping a test body reports the deftest's line. Locations are omitted when
+the file is run via stdin.
 
 ## Best practice
 
