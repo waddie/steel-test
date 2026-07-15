@@ -52,16 +52,22 @@ Run with `steel tests/test-foo.scm`. Exit code 0 means the suite passed.
   whole run. Fixtures compose in registration order, first registered
   outermost. Teardown of `'each` fixtures runs even when the test body
   raises.
-- `(run-tests!)` runs the suite, prints a summary, and raises when any
-  failure or error was recorded, so file mode exits nonzero. The raise
-  points at the `(run-tests!)` call site. The normal last form of a test
-  file. A macro: call it, don’t pass it as a value.
-- `(run-tests)` is the non-raising variant; returns the stats hash.
+- `(run-tests)`/`(run-tests!)` runs the suite and prints a human-friendly
+  summary. The `!` variant additionally raises when any failure or error
+  was recorded, so Steel exits nonzero. The raise points at the `(run-tests!)`
+  call site.
+- `(run-tests-json)`/`(run-tests-json!)` as above, but with a JSON summary
+  for easier parsing with tooling, LLMs, etc.
 - `(test-stats)` returns counters: `'tests 'assertions 'passes 'failures
 'errors`.
-- `(reset-tests!)` clears the registry, fixtures, and counters.
+- `(test-summary)` returns the rich hash serialized by `run-tests-json`:
+  `'summary` (the counters plus `'success`) and `'problems` (the failure and
+  error records). Use it to build your own output.
+- `(reset-tests!)` clears the registry, fixtures, counters, and records.
 
-## Failure output
+## Human-friendly output
+
+From `(run-tests)`/`(run-tests!)`:
 
 ```sh
 FAIL in (addition) [basic] (test-foo.scm:7)
@@ -86,6 +92,42 @@ file mode exit nonzero; it carries the call site’s span, so it points at the
 `(run-tests!)` form. As far as I can tell, Steel currently has no way to set
 the exit code without raising (which I guess does make sense for an
 interpreter intended for embedding).
+
+## JSON output
+
+From `(run-tests-json)`/`(run-tests-json!)`:
+
+```json
+{
+  "summary": {
+    "tests": 1,
+    "assertions": 1,
+    "passes": 0,
+    "failures": 1,
+    "errors": 0,
+    "success": false
+  },
+  "problems": [
+    {
+      "kind": "fail",
+      "type": "equal",
+      "test": "addition",
+      "context": ["basic"],
+      "location": "test-foo.scm:7",
+      "form": "(= 4 (add 2 2))",
+      "message": false,
+      "expected": "4",
+      "actual": "5"
+    }
+  ]
+}
+```
+
+`summary.success` is the single boolean to check. Every record in `problems`
+carries `kind` (`"fail"` or `"error"`) and a finer `type`; `context` is an
+outer-first array. `expected`, `actual`, and `error` are stringified, so any
+value serializes. `location` and `message` are `false` when absent (`stdin`
+source, or no assertion message).
 
 ## Best practice
 

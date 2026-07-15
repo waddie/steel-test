@@ -14,7 +14,10 @@
   use-fixtures
   run-tests
   run-tests!
+  run-tests-json
+  run-tests-json!
   test-stats
+  test-summary
   reset-tests!)
 
 ;; ---------------------------------------------------------------------------
@@ -27,6 +30,14 @@
 (define *tests-run* (box 0))
 (define *current-test* (box #f))
 (define *context* (box '()))
+
+;; Failure/error records, newest first; reversed on read. Populated at every
+;; report site regardless of mode so human output stays byte-identical.
+(define *results* (box '()))
+
+;; When #t, report-* build records but suppress the inline human lines so
+;; stdout carries only the JSON blob.
+(define *json-mode* (box #f))
 
 ;; Registry entries are (name . thunk) pairs, most recent first; reversed
 ;; before a run. Built with cons: no struct-carrying map (Steel quirk).
@@ -127,53 +138,137 @@
   (inc! *passes*)
   #t)
 
+(define (push-result! rec)
+  (set-box! *results* (cons rec (unbox *results*)))
+  #t)
+
+;; Common record fields from current runner state. Conditionals are let-bound
+;; before the hash call (a call with several if argument subexpressions can
+;; mis-evaluate to #f in a module, steel 0.8.2). loc is #f or "file.scm:line".
+;; type-specific keys are added by the caller with hash-insert (immutable).
+(define (make-record kind type form-str loc)
+  (let ([name (unbox *current-test*)]
+        [ctx (unbox *context*)])
+    (let ([test-field (if name (symbol->string name) #f)]
+          [form-field (if form-str form-str #f)]
+          [ctx-field (reverse ctx)])
+      (hash 'kind kind
+        'type
+        type
+        'test
+        test-field
+        'context
+        ctx-field
+        'location
+        loc
+        'form
+        form-field))))
+
 ;; form-str is the assertion form already rendered to a string; the = form
 ;; is rendered from its operand forms to avoid printing the macro-mangled
 ;; name of the = literal.
 (define (report-fail-truthy form-str msg span stx)
-  (let ([loc (location-string span stx)])
-    (displayln (fail-header "FAIL" loc)))
-  (print-msg msg)
-  (displayln (string-append "  expected: " form-str))
-  (displayln "  actual:   #false")
+  (let ([loc (location-string span stx)]
+        [msg-field (if msg msg #f)])
+    (push-result!
+      (hash-insert
+        (hash-insert
+          (hash-insert (make-record "fail" "truthy" form-str loc) 'message msg-field)
+          'expected
+          form-str)
+        'actual
+        "#false"))
+    (if (unbox *json-mode*)
+      #t
+      (begin
+        (displayln (fail-header "FAIL" loc))
+        (print-msg msg)
+        (displayln (string-append "  expected: " form-str))
+        (displayln "  actual:   #false"))))
   (inc! *failures*)
   #f)
 
 (define (report-fail-equal form-str expected actual msg span stx)
-  (let ([loc (location-string span stx)])
-    (displayln (fail-header "FAIL" loc)))
-  (print-msg msg)
-  (displayln (string-append "  " form-str))
-  (displayln (string-append "  expected: " (to-string expected)))
-  (displayln (string-append "  actual:   " (to-string actual)))
+  (let ([loc (location-string span stx)]
+        [exp-str (to-string expected)]
+        [act-str (to-string actual)]
+        [msg-field (if msg msg #f)])
+    (push-result!
+      (hash-insert
+        (hash-insert
+          (hash-insert (make-record "fail" "equal" form-str loc) 'message msg-field)
+          'expected
+          exp-str)
+        'actual
+        act-str))
+    (if (unbox *json-mode*)
+      #t
+      (begin
+        (displayln (fail-header "FAIL" loc))
+        (print-msg msg)
+        (displayln (string-append "  " form-str))
+        (displayln (string-append "  expected: " exp-str))
+        (displayln (string-append "  actual:   " act-str)))))
   (inc! *failures*)
   #f)
 
 (define (report-fail-no-throw form-str msg span stx)
-  (let ([loc (location-string span stx)])
-    (displayln (fail-header "FAIL" loc)))
-  (print-msg msg)
-  (displayln (string-append "  " form-str))
-  (displayln "  expected an error, none was raised")
+  (let ([loc (location-string span stx)]
+        [msg-field (if msg msg #f)])
+    (push-result!
+      (hash-insert
+        (hash-insert (make-record "fail" "no-throw" form-str loc) 'message msg-field)
+        'detail
+        "expected an error, none was raised"))
+    (if (unbox *json-mode*)
+      #t
+      (begin
+        (displayln (fail-header "FAIL" loc))
+        (print-msg msg)
+        (displayln (string-append "  " form-str))
+        (displayln "  expected an error, none was raised"))))
   (inc! *failures*)
   #f)
 
 (define (report-fail-wrong-msg form-str err substr msg span stx)
-  (let ([loc (location-string span stx)])
-    (displayln (fail-header "FAIL" loc)))
-  (print-msg msg)
-  (displayln (string-append "  " form-str))
-  (displayln (string-append "  expected error containing: " substr))
-  (displayln (string-append "  actual error: " (to-string err)))
+  (let ([loc (location-string span stx)]
+        [err-str (to-string err)]
+        [msg-field (if msg msg #f)])
+    (push-result!
+      (hash-insert
+        (hash-insert
+          (hash-insert (make-record "fail" "wrong-message" form-str loc) 'message msg-field)
+          'substring
+          substr)
+        'error
+        err-str))
+    (if (unbox *json-mode*)
+      #t
+      (begin
+        (displayln (fail-header "FAIL" loc))
+        (print-msg msg)
+        (displayln (string-append "  " form-str))
+        (displayln (string-append "  expected error containing: " substr))
+        (displayln (string-append "  actual error: " err-str)))))
   (inc! *failures*)
   #f)
 
 (define (report-error form-str err msg span stx)
-  (let ([loc (location-string span stx)])
-    (displayln (fail-header "ERROR" loc)))
-  (print-msg msg)
-  (displayln (string-append "  " form-str))
-  (displayln (string-append "  " (to-string err)))
+  (let ([loc (location-string span stx)]
+        [err-str (to-string err)]
+        [msg-field (if msg msg #f)])
+    (push-result!
+      (hash-insert
+        (hash-insert (make-record "error" "assertion" form-str loc) 'message msg-field)
+        'error
+        err-str))
+    (if (unbox *json-mode*)
+      #t
+      (begin
+        (displayln (fail-header "ERROR" loc))
+        (print-msg msg)
+        (displayln (string-append "  " form-str))
+        (displayln (string-append "  " err-str)))))
   (inc! *errors*)
   #f)
 
@@ -337,8 +432,14 @@
 ;; Uncaught error escaping a test body: counted as an error, no assertion.
 ;; loc is the deftest's file:line, or #f outside any test.
 (define (report-test-error err loc)
-  (displayln (fail-header "ERROR" loc))
-  (displayln (string-append "  " (to-string err)))
+  (let ([err-str (to-string err)])
+    (push-result!
+      (hash-insert (make-record "error" "test-error" #f loc) 'error err-str))
+    (if (unbox *json-mode*)
+      #t
+      (begin
+        (displayln (fail-header "ERROR" loc))
+        (displayln (string-append "  " err-str)))))
   (inc! *errors*)
   #f)
 
@@ -382,7 +483,10 @@
 ;; fixtures, print a summary, and return the stats hash. Never raises; see
 ;; run-tests! for the raising variant that makes file mode exit nonzero on
 ;; failure.
-(define (run-tests)
+;; Run every registered test through the once-fixtures, collecting counters and
+;; records but printing no summary. Escaping errors are caught, so this never
+;; raises. Shared by run-tests and run-tests-json.
+(define (run-suite!)
   (let ([run-all (lambda ()
                   (let loop ([rest (reverse (unbox *tests*))])
                     (if (empty? rest)
@@ -391,7 +495,10 @@
                         (run-one-test (car rest))
                         (loop (cdr rest))))))])
     (with-handler (lambda (err) (report-test-error err #f))
-      ((wrap-fixtures (unbox *once-fixtures*) run-all))))
+      ((wrap-fixtures (unbox *once-fixtures*) run-all)))))
+
+(define (run-tests)
+  (run-suite!)
   (let ([stats (test-stats)])
     (print-summary stats)
     stats))
@@ -403,6 +510,30 @@
       (error-with-span span "test failures"))))
 
 ;;@doc
+;; Run the suite like run-tests but emit one JSON summary (test-summary
+;; serialized) to stdout, suppressing the inline FAIL/ERROR blocks so stdout is
+;; a single parseable object. Never raises; returns the summary hash. See
+;; run-tests-json! for the raising variant.
+(define (run-tests-json)
+  (set-box! *json-mode* #t)
+  (run-suite!)
+  (set-box! *json-mode* #f)
+  (let ([summary (test-summary)])
+    (displayln (value->jsexpr-string summary))
+    summary))
+
+;; Decide the raise from the boxes, not by hash-ref-ing the returned summary:
+;; hash-ref on a returned multi-key hash inside a module function corrupts
+;; (steel 0.8.2). The nested lets force run-tests-json to run (populating the
+;; boxes) before they are read.
+(define (run-tests-json-impl! span)
+  (let ([summary (run-tests-json)])
+    (let ([bad (+ (unbox *failures*) (unbox *errors*))])
+      (if (= 0 bad)
+        summary
+        (error-with-span span "test failures")))))
+
+;;@doc
 ;; Run the suite like run-tests, then raise when any failure or error was
 ;; recorded so file mode (steel tests/foo.scm) exits nonzero. Returns the
 ;; stats hash when clean. The normal last form of a test file. The raise
@@ -412,6 +543,17 @@
   (syntax-rules ()
     [(run-tests!)
       (run-tests-impl! (#%syntax-span (run-tests!)))]))
+
+;;@doc
+;; Like run-tests-json, then raise when any failure or error was recorded so
+;; file mode exits nonzero. The JSON is written to stdout before the raise, so
+;; a tool reading stdout still gets a clean blob while steel's error block goes
+;; to stderr. Returns the summary hash when clean. A macro: call it, don't pass
+;; it as a value. The raise carries the call site's span.
+(define-syntax run-tests-json!
+  (syntax-rules ()
+    [(run-tests-json!)
+      (run-tests-json-impl! (#%syntax-span (run-tests-json!)))]))
 
 ;; ---------------------------------------------------------------------------
 ;; Stats
@@ -430,6 +572,38 @@
     'errors
     (unbox *errors*)))
 
+;; Counts plus 'success, built inline in one hash and returned from its own
+;; function. Binding an inline multi-key hash in a let and then embedding it as
+;; a value (via hash-insert or a further hash call) corrupts under module
+;; compilation (steel 0.8.2): the value leaks to the hash's first key. Returning
+;; it from a helper dodges that, as does the caller's step-by-step hash-insert
+;; wrapping. The keys duplicate test-stats deliberately for the same reason:
+;; hash-insert on the test-stats *result* hits the same bug.
+(define (counts-with-success success)
+  (hash 'tests (unbox *tests-run*)
+    'assertions
+    (unbox *assertions*)
+    'passes
+    (unbox *passes*)
+    'failures
+    (unbox *failures*)
+    'errors
+    (unbox *errors*)
+    'success
+    success))
+
+;;@doc
+;; Rich result as a hash: 'summary is the counts (see test-stats) plus 'success
+;; (#t when no failures or errors); 'problems is the list of failure and error
+;; records collected during the run, in run order, context outer-first within
+;; each. Serialized by run-tests-json; use directly to build your own output.
+(define (test-summary)
+  (let ([recs (reverse (unbox *results*))]
+        [success (= 0 (+ (unbox *failures*) (unbox *errors*)))])
+    (let ([counts (counts-with-success success)])
+      (let ([base (hash-insert (hash) 'summary counts)])
+        (hash-insert base 'problems recs)))))
+
 ;;@doc
 ;; Clear the registry, fixtures, counters, and reporting state.
 (define (reset-tests!)
@@ -443,4 +617,6 @@
   (set-box! *errors* 0)
   (set-box! *current-test* #f)
   (set-box! *context* '())
+  (set-box! *results* '())
+  (set-box! *json-mode* #f)
   #t)
