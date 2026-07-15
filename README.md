@@ -71,7 +71,9 @@ Ran 1 tests containing 1 assertions.
 1 failures, 0 errors.
 ```
 
-## Gotchas
+## Best practice
+
+### Shadowing
 
 Do not name a `deftest` the same as any function being exercised. `deftest`
 expands to `(define (name) ...)`, so the test would shadow that binding.
