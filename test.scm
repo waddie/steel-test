@@ -121,7 +121,7 @@
       (string-append kind name-part ctx-part loc-part))))
 
 (define (print-msg msg)
-  (if msg (displayln (string-append "  " msg)) #t))
+  (if msg (displayln (string-append "  \"" msg "\":")) #t))
 
 (define (record-pass)
   (inc! *passes*)
@@ -396,15 +396,22 @@
     (print-summary stats)
     stats))
 
-;;@doc
-;; Run the suite like run-tests, then raise when any failure or error was
-;; recorded so file mode (steel tests/foo.scm) exits nonzero. Returns the
-;; stats hash when clean. The normal last form of a test file.
-(define (run-tests!)
+(define (run-tests-impl! span)
   (let ([stats (run-tests)])
     (if (= 0 (+ (hash-ref stats 'failures) (hash-ref stats 'errors)))
       stats
-      (error! "test failures"))))
+      (error-with-span span "test failures"))))
+
+;;@doc
+;; Run the suite like run-tests, then raise when any failure or error was
+;; recorded so file mode (steel tests/foo.scm) exits nonzero. Returns the
+;; stats hash when clean. The normal last form of a test file. The raise
+;; carries the call site's span, so steel's report is a single block
+;; pointing at the (run-tests!) form rather than at this file's internals.
+(define-syntax run-tests!
+  (syntax-rules ()
+    [(run-tests!)
+      (run-tests-impl! (#%syntax-span (run-tests!)))]))
 
 ;; ---------------------------------------------------------------------------
 ;; Stats

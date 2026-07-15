@@ -1,8 +1,8 @@
 # steel-test
 
-Unit testing for [Steel](https://github.com/mattwparas/steel), modeled on
-clojure.test. Tests are plain Steel files run in file mode; the exit code is
-the verdict.
+Unit testing for [Steel](https://github.com/mattwparas/steel), modelled
+on `clojure.test`. Tests are plain Steel files run in file mode; the exit
+code (`0`|`1`) is the verdict.
 
 ## Install
 
@@ -40,7 +40,7 @@ Run with `steel tests/test-foo.scm`. Exit code 0 means the suite passed.
   - `(is (= expected actual))` compares with `equal?`, reports both values
   - `(is (thrown? body ...))` passes when the body raises
   - `(is (thrown-with-msg? "substr" body ...))` also requires the error
-    text to contain substr
+    text to contain `substr`
   - any other form passes when it evaluates truthy
 
   All variants take an optional trailing message string and return `#t` or
@@ -53,8 +53,9 @@ Run with `steel tests/test-foo.scm`. Exit code 0 means the suite passed.
   outermost. Teardown of `'each` fixtures runs even when the test body
   raises.
 - `(run-tests!)` runs the suite, prints a summary, and raises when any
-  failure or error was recorded, so file mode exits nonzero. The normal
-  last form of a test file.
+  failure or error was recorded, so file mode exits nonzero. The raise
+  points at the `(run-tests!)` call site. The normal last form of a test
+  file. A macro: call it, don’t pass it as a value.
 - `(run-tests)` is the non-raising variant; returns the stats hash.
 - `(test-stats)` returns counters: `'tests 'assertions 'passes 'failures
 'errors`.
@@ -69,11 +70,22 @@ FAIL in (addition) [basic] (test-foo.scm:7)
   actual:   5
 Ran 1 tests containing 1 assertions.
 1 failures, 0 errors.
+error[E11]: Generic
+  ┌─ tests/test-foo.scm:9:2
+  │
+9 │ (run-tests!)
+  │  ^^^^^^^^^^  test failures
 ```
 
 The `(file:line)` suffix points at the failing assertion; an uncaught error
-escaping a test body reports the deftest's line. Locations are omitted when
-the file is run via stdin.
+escaping a test body reports the `deftest`’s line. Locations are omitted when
+the file is run via `stdin`.
+
+The trailing `error[E11]` block is the raise from `run-tests!` that makes
+file mode exit nonzero; it carries the call site’s span, so it points at the
+`(run-tests!)` form. As far as I can tell, Steel currently has no way to set
+the exit code without raising (which I guess does make sense for an
+interpreter intended for embedding).
 
 ## Best practice
 
