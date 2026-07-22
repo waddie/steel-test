@@ -23,6 +23,27 @@
 (meta-check! "(is (= 1 2)) returns #f" (equal? #f (is (= 1 2))))
 (meta-check! "(is (= 1 2) msg) returns #f" (equal? #f (is (= 1 2) "expected failure message")))
 
+;; Inequality special form. The (= ...) interception matters beyond cosmetics:
+;; steel's = aborts the VM on non-numeric operands, so these would take the
+;; process down if they reached the truthy path.
+(meta-check! "(is (not (= 1 2))) returns #t" (equal? #t (is (not (= 1 2)))))
+(meta-check! "(is (not (= 1 1))) returns #f" (equal? #f (is (not (= 1 1)))))
+(meta-check! "(is (not (= \"a\" \"b\"))) returns #t" (equal? #t (is (not (= "a" "b")))))
+(meta-check! "(is (not (= '(1 2) '(1 2)))) returns #f"
+  (equal? #f (is (not (= '(1 2) '(1 2))))))
+(meta-check! "(is (not (= 'x 'x)) msg) returns #f"
+  (equal? #f (is (not (= 'x 'x)) "expected failure message")))
+
+;; not= spelling, same runner
+(meta-check! "(is (not= \"a\" \"b\")) returns #t" (equal? #t (is (not= "a" "b"))))
+(meta-check! "(is (not= \"a\" \"a\")) returns #f" (equal? #f (is (not= "a" "a"))))
+(meta-check! "(is (not= 1 1) msg) returns #f"
+  (equal? #f (is (not= 1 1) "expected failure message")))
+
+;; A plain (not x) is not an inequality form and keeps the truthy path
+(meta-check! "(is (not #f)) returns #t" (equal? #t (is (not #f))))
+(meta-check! "(is (not #t)) returns #f" (equal? #f (is (not #t))))
+
 ;; thrown?
 (meta-check! "(is (thrown? ...)) passes when body raises"
   (equal? #t (is (thrown? (error! "boom")))))
@@ -41,11 +62,11 @@
 (meta-check! "error inside (is expr) returns #f, does not crash"
   (equal? #f (is (error! "kaboom"))))
 
-;; Stats: 5 passes, 6 failures, 2 errors, 13 assertions
+;; Stats: 9 passes, 12 failures, 2 errors, 23 assertions
 (define stats (test-stats))
-(meta-check! "stats counts assertions" (equal? 13 (hash-ref stats 'assertions)))
-(meta-check! "stats counts passes" (equal? 5 (hash-ref stats 'passes)))
-(meta-check! "stats counts failures" (equal? 6 (hash-ref stats 'failures)))
+(meta-check! "stats counts assertions" (equal? 23 (hash-ref stats 'assertions)))
+(meta-check! "stats counts passes" (equal? 9 (hash-ref stats 'passes)))
+(meta-check! "stats counts failures" (equal? 12 (hash-ref stats 'failures)))
 (meta-check! "stats counts errors" (equal? 2 (hash-ref stats 'errors)))
 
 ;; reset-tests! zeroes everything

@@ -38,6 +38,8 @@ Run with `steel tests/test-foo.scm`. Exit code 0 means the suite passed.
 - `(is form)` asserts. Special forms:
 
   - `(is (= expected actual))` compares with `equal?`, reports both values
+  - `(is (not (= expected actual)))` is the inverse; `(is (not= expected
+actual))` is an accepted spelling of the same thing
   - `(is (thrown? body ...))` passes when the body raises
   - `(is (thrown-with-msg? "substr" body ...))` also requires the error
     text to contain `substr`

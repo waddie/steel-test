@@ -212,6 +212,32 @@
   (inc! *failures*)
   #f)
 
+;; Inequality failure: the two values compared equal, so there is only one
+;; value to show. expected is rendered as "not <value>" to keep the field pair
+;; readable as display strings.
+(define (report-fail-not-equal form-str actual msg span stx)
+  (let ([loc (location-string span stx)]
+        [act-str (to-string actual)]
+        [msg-field (if msg msg #f)])
+    (push-result!
+      (hash-insert
+        (hash-insert
+          (hash-insert (make-record "fail" "not-equal" form-str loc) 'message msg-field)
+          'expected
+          (string-append "not " act-str))
+        'actual
+        act-str))
+    (if (unbox *json-mode*)
+      #t
+      (begin
+        (displayln (fail-header "FAIL" loc))
+        (print-msg msg)
+        (displayln (string-append "  " form-str))
+        (displayln (string-append "  expected: not " act-str))
+        (displayln (string-append "  actual:   " act-str)))))
+  (inc! *failures*)
+  #f)
+
 (define (report-fail-no-throw form-str msg span stx)
   (let ([loc (location-string span stx)]
         [msg-field (if msg msg #f)])
@@ -291,6 +317,22 @@
             (record-pass)
             (report-fail-equal form-str expected actual msg span stx)))))))
 
+;; Inverse of assert-equal. Both inequality spellings route here, so the form
+;; is rendered as (not (= ...)) either way rather than echoing the source.
+(define (assert-not-equal expected-form actual-form expected-thunk actual-thunk msg span stx)
+  (inc! *assertions*)
+  (let ([form-str (string-append "(not (= "
+                   (to-string expected-form)
+                   " "
+                   (to-string actual-form)
+                   "))")])
+    (with-handler (lambda (err) (report-error form-str err msg span stx))
+      (let ([expected (expected-thunk)])
+        (let ([actual (actual-thunk)])
+          (if (equal? expected actual)
+            (report-fail-not-equal form-str actual msg span stx)
+            (record-pass)))))))
+
 (define (assert-thrown form thunk substr msg span stx)
   (inc! *assertions*)
   (let ([form-str (to-string form)])
@@ -304,15 +346,38 @@
 
 ;;@doc
 ;; Assert a form. Special forms: (is (= expected actual)) compares with
-;; equal? and reports both values; (is (thrown? body ...)) passes when the
-;; body raises; (is (thrown-with-msg? "substr" body ...)) additionally
-;; requires the error text to contain substr. Any other form passes when it
-;; evaluates truthy. All variants accept a trailing message string, return
-;; #t or #f, and catch errors raised by the form (recorded as errors, not
-;; crashes). Failure headers carry the assertion's file:line, captured at
-;; expansion time; omitted when the source has no path (stdin).
+;; equal? and reports both values; (is (not (= expected actual))) and its
+;; (is (not= expected actual)) spelling are the inverse; (is (thrown? body
+;; ...)) passes when the body raises; (is (thrown-with-msg? "substr" body
+;; ...)) additionally requires the error text to contain substr. Any other
+;; form passes when it evaluates truthy. All variants accept a trailing
+;; message string, return #t or #f, and catch errors raised by the form
+;; (recorded as errors, not crashes). Failure headers carry the assertion's
+;; file:line, captured at expansion time; omitted when the source has no
+;; path (stdin).
+;;
+;; The inequality forms are rewritten here rather than evaluated, because
+;; steel's = is numeric-only and aborts the process on other types (a VM
+;; panic, not a catchable error). not= is recognised only inside is; it is
+;; a macro literal, not a binding.
 (define-syntax is
-  (syntax-rules (= thrown? thrown-with-msg?)
+  (syntax-rules (not = not= thrown? thrown-with-msg?)
+    [(is (not (= expected actual)))
+      (assert-not-equal (quote expected) (quote actual) (lambda () expected) (lambda () actual) #f
+        (#%syntax-span expected)
+        (#%syntax/raw 'loc 'loc (#%syntax-span expected)))]
+    [(is (not (= expected actual)) msg)
+      (assert-not-equal (quote expected) (quote actual) (lambda () expected) (lambda () actual) msg
+        (#%syntax-span expected)
+        (#%syntax/raw 'loc 'loc (#%syntax-span expected)))]
+    [(is (not= expected actual))
+      (assert-not-equal (quote expected) (quote actual) (lambda () expected) (lambda () actual) #f
+        (#%syntax-span expected)
+        (#%syntax/raw 'loc 'loc (#%syntax-span expected)))]
+    [(is (not= expected actual) msg)
+      (assert-not-equal (quote expected) (quote actual) (lambda () expected) (lambda () actual) msg
+        (#%syntax-span expected)
+        (#%syntax/raw 'loc 'loc (#%syntax-span expected)))]
     [(is (= expected actual))
       (assert-equal (quote expected) (quote actual) (lambda () expected) (lambda () actual) #f
         (#%syntax-span expected)

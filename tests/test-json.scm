@@ -93,6 +93,41 @@
   (equal? 0 (length (hash-ref clean 'problems))))
 
 ;; ---------------------------------------------------------------------------
+;; Scenario B2: the not-equal record. Only one value is meaningful, so expected
+;; is the "not <value>" rendering of it.
+
+(reset-tests!)
+
+(deftest json-not-equal
+  (is (not (= '(1 2) '(1 2)))))
+
+(define ne-cap (box #f))
+(with-output-to-string
+  (lambda () (set-box! ne-cap (run-tests-json))))
+(define ne-rec (list-ref (hash-ref (unbox ne-cap) 'problems) 0))
+(meta-check! "not-equal record kind" (equal? "fail" (hash-ref ne-rec 'kind)))
+(meta-check! "not-equal record type" (equal? "not-equal" (hash-ref ne-rec 'type)))
+(meta-check! "not-equal record expected" (equal? "not (1 2)" (hash-ref ne-rec 'expected)))
+(meta-check! "not-equal record actual" (equal? "(1 2)" (hash-ref ne-rec 'actual)))
+(meta-check! "not-equal record form is the not spelling"
+  (equal? "(not (= (quote (1 2)) (quote (1 2))))" (hash-ref ne-rec 'form)))
+
+;; not= reports through the same runner, so its form renders identically.
+(reset-tests!)
+
+(deftest json-not-eq-alias
+  (is (not= '(1 2) '(1 2))))
+
+(define alias-cap (box #f))
+(with-output-to-string
+  (lambda () (set-box! alias-cap (run-tests-json))))
+(define alias-rec (list-ref (hash-ref (unbox alias-cap) 'problems) 0))
+(meta-check! "not= record type matches the not form"
+  (equal? "not-equal" (hash-ref alias-rec 'type)))
+(meta-check! "not= record form renders as the not spelling"
+  (equal? "(not (= (quote (1 2)) (quote (1 2))))" (hash-ref alias-rec 'form)))
+
+;; ---------------------------------------------------------------------------
 ;; Scenario C: run-tests-json! raises on failure, returns the summary clean.
 
 (reset-tests!)
