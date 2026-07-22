@@ -40,7 +40,7 @@
 (define *json-mode* (box #f))
 
 ;; Registry entries are (name . thunk) pairs, most recent first; reversed
-;; before a run. Built with cons: no struct-carrying map (Steel quirk).
+;; before a run.
 (define *tests* (box '()))
 
 ;; Fixture functions, most recent first: newest is innermost when wrapped.
